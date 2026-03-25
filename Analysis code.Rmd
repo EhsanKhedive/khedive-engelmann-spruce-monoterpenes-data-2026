@@ -34,7 +34,7 @@ library(broom) # Extract output coefficients from the model
 ## 1.1. Reading datasets
 
 ```{r, include=FALSE, eval=FALSE}
-setwd("C:/Users/ekhed/Documents/My Space/R/Dissertation/Chapter_II/Datasets")
+setwd("...")
 files <- list.files(pattern = "*.csv")
 
 data_list <- lapply(files, function(file) {
@@ -303,7 +303,7 @@ write.csv(Monoterpenes,"Monoterpenes.csv")
 
 ## 2.1. Read monoterpenes data file
 ```{r Import data}
-#rm(list = ls())
+setwd("...")
 Monoterpenes <- read_csv("Monoterpenes.csv")[,-1]
 Climatedata <- read.csv("Site_climate.csv")
 ```
