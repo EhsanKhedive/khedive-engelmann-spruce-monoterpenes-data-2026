@@ -1,0 +1,1501 @@
+---
+title: "Total_Metabolome"
+author: "Ehsan Khedive"
+date: "2024-08-08"
+output: word_document
+---
+
+    ***Knit the file to receive the supplemental material***
+
+```{r setup, include=FALSE,}
+knitr::opts_chunk$set(echo = TRUE)
+install.packages(setdiff(c("car" , "ggplot2", "dplyr", "tidyr", "readr", "effects", "multcomp", "GGally", "gridExtra","rcompanion", "ggpattern", "officer", "flextable", "broom"),
+                         rownames(installed.packages())))
+library(car)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(effects)
+library(multcomp)
+library(GGally)
+library(gridExtra)
+library(rcompanion)
+library(ggpattern)
+library(officer) # write docx file
+library(flextable) # make tables in docx
+library(broom) # Extract output coefficients from the model
+```
+
+    ***Data for the codes under this heading are not available due to the fact that not all the compounds were studied in this paper***
+
+# 1. Data preparation
+
+## 1.1. Reading datasets
+
+```{r, include=FALSE, eval=FALSE}
+setwd("C:/Users/ekhed/Documents/My Space/R/Dissertation/Chapter_II/Datasets")
+files <- list.files(pattern = "*.csv")
+
+data_list <- lapply(files, function(file) {
+  # Read the file
+  df <- read_csv(file, skip = 2)
+  
+  # Identify problematic rows where "RT" is not a number
+  problematic_indices <- which(is.na(as.numeric(df$RT)))
+  
+  # Create a vector of indices to remove (problematic rows + row above each)
+  indices_to_remove <- unique(c(problematic_indices, problematic_indices - 1))
+  
+  # Remove the identified rows
+  df <- df[-indices_to_remove, ]
+  
+  return(df)
+})
+combined_data <- do.call(rbind, data_list)
+rm(data_list,files)
+```
+
+## 1.2. Data handling
+
+```{r, include=FALSE, eval=FALSE}
+# Remove rows with misplaced columns
+combined_data$Mass <- as.character(combined_data$Mass)
+rows_with_number <- grepl("\\d", combined_data$Mass)
+Pooled_filtered <- combined_data[!rows_with_number, ]
+rm(rows_with_number)
+
+Pooled_filtered$`CAS ID` <- sub("^0+", "", Pooled_filtered$`CAS ID`) # Remove leading zeros from "CAS.ID" column
+Pooled_filtered$File <- sub(".*\\\\", "", Pooled_filtered$File) # Remove address from File field
+
+# Refine Label column
+Pooled_filtered$Label <- sub("^[^ ]+ [^ ]+ ", "", Pooled_filtered$Label)
+Pooled_filtered$Label <- sub(";.*$", "", Pooled_filtered$Label)
+
+# Refine Score (lib)
+
+Pooled_filtered <- Pooled_filtered %>%
+  filter(!is.na(`Score (Lib)`),          # Remove NAs
+         !grepl("[^0-9.]", `Score (Lib)`), # Remove rows with any character (non-numeric)
+         as.numeric(`Score (Lib)`) >= 60)  # Remove numbers below 60
+
+
+Pooled_filtered$`CAS ID` <- paste("CAS", Pooled_filtered$`CAS ID`, sep = "") #adding CAS to CAS ID column
+Pooled_filtered$File <- gsub("P|\\.D|\\[MCF50\\]", "", Pooled_filtered$File)
+Pooled_filtered$File <- gsub("[^0-9]", "", Pooled_filtered$File) # Retain only the numbers in File column
+
+```
+
+## 1.3. Correct wrong sample labelings
+
+```{r, include=FALSE, eval=FALSE}
+Pooled_filtered$File <- gsub("5613", "50613", Pooled_filtered$File) # Correct formatting for tree #95 date 0613
+Pooled_filtered <- Pooled_filtered[Pooled_filtered$File != "3606132", ] # Remove duplicate for sample 360613
+# Almq
+Pooled_filtered$File <- gsub("630823", "630828", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("670827", "670828", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("730720", "730920", Pooled_filtered$File) # Correct date
+# Cameron pass
+Pooled_filtered$File <- gsub("105", "06", Pooled_filtered$File) # Correct tree tag
+Pooled_filtered$File <- gsub("120610", "080610", Pooled_filtered$File) # Correct tree tag
+Pooled_filtered$File <- gsub("070913", "070917", Pooled_filtered$File) # Correct date
+# Empire
+Pooled_filtered$File <- gsub("830602", "830620", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("790716", "790710", Pooled_filtered$File) # Correct date
+# Grant
+Pooled_filtered$File <- gsub("500708", "500703", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("470710", "470712", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("580812", "580612", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("460920", "400921", Pooled_filtered$File) # Correct date
+# Rabbit ears
+Pooled_filtered$File <- gsub("240819", "240918", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("290613", "290619", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("300613", "300619", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("320613", "320619", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("330613", "330619", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("340613", "340619", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("350613", "350619", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("360613", "360619", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("370613", "370619", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("380613", "380619", Pooled_filtered$File) # Correct date
+Pooled_filtered$File <- gsub("380708", "380709", Pooled_filtered$File) # Correct date
+
+
+Pooled_filtered$File <- gsub("320728", "070728", Pooled_filtered$File) # Correct date
+
+```
+
+## 1.4. Import duplicate samples
+
+```{r, include=FALSE, eval=FALSE}
+Duplicates <- read_csv("Duplicates.csv", skip = 2)
+# No misplaced columns was detected
+
+Duplicates <- Duplicates[Duplicates$`Show/Hide` == "True", ] # Remove undetected peaks
+Duplicates <- Duplicates[!is.na(Duplicates$File), ]
+
+Duplicates$`CAS ID` <- sub("^0+", "", Duplicates$`CAS ID`) # Remove leading zeros from "CAS.ID" column
+Duplicates$File <- sub(".*\\\\", "", Duplicates$File) # Remove address from File field
+
+# Refine Label column
+Duplicates$Label <- sub("^[^ ]+ [^ ]+ ", "", Duplicates$Label)
+Duplicates$Label <- sub(";.*$", "", Duplicates$Label)
+
+
+Duplicates$`CAS ID` <- paste("CAS", Duplicates$`CAS ID`, sep = "") #adding CAS to CAS ID column
+Duplicates$File <- gsub("[^0-9]", "", Duplicates$File) # Retain only the numbers in File column
+
+# Correct labels
+{Duplicates$File <- gsub("6908132", "650813", Duplicates$File)
+Duplicates$File <- gsub("760920", "670920", Duplicates$File)
+Duplicates$File <- gsub("690730", "970730", Duplicates$File)
+Duplicates$File <- gsub("080628", "180628", Duplicates$File)
+Duplicates$File <- gsub("960620", "940620", Duplicates$File)
+Duplicates$File <- gsub("3606132", "310619", Duplicates$File)}
+
+```
+
+## 1.5. Merge dataset with duplicates
+The final version of raw data set was exported in this chunk and then manually corrected for the labels.
+
+```{r, include=FALSE, eval=FALSE}
+Raw_final <- rbind(subset(Pooled_filtered, select = c(RT, File, Label, `Score (Lib)`, Formula, `CAS ID`, Precursor, Area, `Reference mass`, `Base Peak`, Ions)), subset(Duplicates, select = c(RT, File, Label, `Score (Lib)`, Formula, `CAS ID`, Precursor, Area, `Reference mass`, `Base Peak`, Ions)))
+
+Raw_final$RT <- as.numeric(Raw_final$RT)
+Raw_final <- Raw_final %>%
+  mutate(File = as.character(File)) %>%
+  separate(File, into = c("TreeID", "Date"), sep = "(?<=.)(?=\\d{4}$)", remove = FALSE)
+
+Raw_final <- Raw_final %>%
+  mutate(Site = factor(case_when(
+    grepl("^(79|[8-9][0-9])", TreeID) ~ "Empire",
+    grepl("^(59|[6-7][0-9])", TreeID) ~ "Alma",
+    grepl("^(39|[4-5][0-9])", TreeID) ~ "Grant",
+    grepl("^(19|[2-3][0-9])", TreeID) & !grepl("200", TreeID) ~ "Rabbit ears",
+    grepl("^\\d", File) ~ "Cameron pass",
+    TRUE ~ NA_character_
+  )))
+
+Treatments <- read.csv("Treatments.csv") # Load treatment codes
+Raw_final$TreeID <- as.numeric(Raw_final$TreeID)
+Raw_final$Date <- as.numeric(Raw_final$Date)
+
+Raw_final <- merge(Raw_final, Treatments, by = "TreeID", all.x = TRUE)
+write.csv(Raw_final, "Raw_final.csv")
+```
+
+## 1.6. Import Correctly labeld dataset with grouping and damage status
+
+```{r, include=FALSE, eval=FALSE}
+Corrected_labels <- read_csv("Corrected_labels.csv")
+
+# Add compound groups
+Groupings <- read_csv("Groups.csv")
+Corrected_labels$Group <- Groupings$Group[match(Corrected_labels$Corrected_Label, Groupings$Corrected_Label)]
+Corrected_labels$Group[is.na(Corrected_labels$Group)] <- "unknown"
+
+# Add tree status, resinosis and Entry holes
+TreeStatus <- read_csv("Tree_status.csv")
+Corrected_labels$Status <- TreeStatus$Status[match(Corrected_labels$TreeID, TreeStatus$TreeID)]
+Corrected_labels$Status[is.na(Corrected_labels$Status)] <- "Control"
+Corrected_labels$Resinosis <- TreeStatus$Resinosis[match(Corrected_labels$TreeID, TreeStatus$TreeID)]
+Corrected_labels$Entryholes <- TreeStatus$`Entryholes-sqm`[match(Corrected_labels$TreeID, TreeStatus$TreeID)]
+
+# Add site climate
+Climatedata <- read.csv("Site_climate.csv")
+Corrected_labels$Precipitation <- Climatedata$Precipitation[match(Corrected_labels$Site, Climatedata$Site)]
+Corrected_labels$Mean_temperature <- Climatedata$Mean_temperature[match(Corrected_labels$Site, Climatedata$Site)]
+Corrected_labels$Maximum_VPD <- Climatedata$Maximum_VPD[match(Corrected_labels$Site, Climatedata$Site)]
+Corrected_labels$Elevation <- Climatedata$Elevation[match(Corrected_labels$Site, Climatedata$Site)]
+Corrected_labels <- Corrected_labels %>%
+  mutate(Day_of_year = case_when(
+    Date %in% c(607:613) ~ "160",
+    Date %in% c(618:623) ~ "170",
+    Date %in% c(628:703) ~ "180",
+    Date %in% c(708:712) ~ "190",
+    Date %in% c(718:723) ~ "200",
+    Date %in% c(728:801) ~ "210",
+    Date %in% c(812:814) ~ "225",
+    Date %in% c(827:828) ~ "240",
+    Date %in% c(917:921) ~ "260",
+    TRUE ~ NA_character_ # Default for dates not matching any condition
+  ))
+Corrected_labels$Day_of_year <- as.numeric(Corrected_labels$Day_of_year)
+Treatments <- read.csv("Treatments.csv") # Load treatment codes
+Corrected_labels <- merge(Corrected_labels, Treatments[, c("TreeID", "Diameter")], by = "TreeID", all.x = TRUE)
+
+# Aggregate multiple peaks in one cell
+Corrected_labels_sumed <- aggregate(Area ~ Corrected_Label + TreeID + Day_of_year, 
+                                     data = Corrected_labels, 
+                                     FUN = sum)
+unique_rows <- (Corrected_labels[!duplicated(Corrected_labels[, c("Corrected_Label", "TreeID", "Day_of_year")]),setdiff(names(Corrected_labels), "Area") ])
+merged_data <- merge(Corrected_labels_sumed, unique_rows, 
+                     by = c("Corrected_Label", "TreeID", "Day_of_year"))
+
+rm(Treatments,TreeStatus, Groupings,unique_rows,Corrected_labels, Corrected_labels_sumed)
+```
+
+## 1.7. Import sample weight dataset and add to the main dataset
+
+```{r, include=FALSE, eval=FALSE}
+Sampleweight <- read.csv("Sample Weights.csv")
+Sampleweight <- Sampleweight %>%
+  mutate(Day_of_year = case_when(
+    Date %in% c(607:613) ~ "160",
+    Date %in% c(618:623) ~ "170",
+    Date %in% c(628:703) ~ "180",
+    Date %in% c(708:712) ~ "190",
+    Date %in% c(718:723) ~ "200",
+    Date %in% c(728:801) ~ "210",
+    Date %in% c(812:814) ~ "225",
+    Date %in% c(827:828) ~ "240",
+    Date %in% c(917:921) ~ "260",
+    TRUE ~ NA_character_ # Default for dates not matching any condition
+  ))
+Sampleweight$Day_of_year <- as.numeric(Sampleweight$Day_of_year)
+Sampleweight <- Sampleweight[Sampleweight$Comment != "Wrong derivatization", ]
+
+merged_data <- merged_data %>%
+  left_join(Sampleweight %>% dplyr::select(TreeID, Day_of_year, Phloem..mg., Solvent..ul.), 
+            by = c("TreeID", "Day_of_year"))
+
+
+## Standard solvent concentration
+merged_data$Value <- (merged_data$Area*merged_data$Solvent..ul.)/200
+
+## Add estimate sample weights to samples without phloem weight. I weighed samples in a range of 100 mg to 120 mg with average of 110 mg
+merged_data$Phloem..mg.[is.na(merged_data$Phloem..mg.)] <- 110
+
+rm(Sampleweight)
+```
+
+## 1.8. Extract monoterpen compounds from the main dataset for this manuscript and write them to a file
+```{r, include=FALSE, eval=FALSE}
+
+Monoterpenes <- merged_data[!is.na(merged_data$Group) & 
+                                 merged_data$Group %in% c("Monoterpene"), ]
+
+# Remove unused columns
+Monoterpenes <- Monoterpenes %>%
+  dplyr::select(-c(RT, File, Date, Group, Area))
+
+# Replace outliers with 99% percentile using Winzorization
+Monoterpenes <- Monoterpenes %>%
+  group_by(Corrected_Label) %>%
+  mutate(
+    upper_quantile = quantile(Value, 0.99, na.rm = TRUE),
+     Value_Winz = ifelse(Value > upper_quantile, upper_quantile, Value)
+  ) %>%
+  ungroup()
+
+# Clean data from missing samples
+Monoterpenes <- Monoterpenes[!is.na(Monoterpenes$Solvent..ul.), ]
+
+write.csv(Monoterpenes,"Monoterpenes.csv")
+
+```
+
+
+
+                                                                ***Readers/Reviewers can run the code chunks from this point forward.***
+
+# 2. Read and prepared monoterpenes dataset for analysis
+
+## 2.1. Read monoterpenes data file
+```{r Import data}
+#rm(list = ls())
+Monoterpenes <- read_csv("Monoterpenes.csv")[,-1]
+Climatedata <- read.csv("Site_climate.csv")
+```
+
+
+## 2.2. Response curve calculation and quantitiation
+Concentrations are described as nanoliters per milliliters of solvent, but then converted to microgram per gram of tissue based on the solvent volume and monoterpene density.
+
+```{r Quantify concentrations}
+Standards <- read.csv("Standards.csv", header = TRUE)
+
+# Create a list to store the models for each monoterpene
+standard_list <- list()
+
+# Loop over each monoterpene to fit the two calibration models
+for(compound in unique(Standards$Monoterpene)){
+  
+  # Subset data for the current compound
+  compound_data <- Standards %>% filter(Monoterpene == compound)
+  
+  # Define the two subsets based on concentration calibration points (1 to 250 nanoliters per milliliter):
+  low_cal_data  <- compound_data %>% filter(Concentration %in% c(1, 5, 25))
+  high_cal_data <- compound_data %>% filter(Concentration %in% c(25, 50, 250))
+  
+  # Fit the linear regression models (using Area as predictor)
+  model_low  <- lm(Concentration ~ Area, data = low_cal_data)
+  model_high <- lm(Concentration ~ Area, data = high_cal_data)
+  
+  # Save the models into the list (using the compound name as key)
+  standard_list[[compound]] <- list(low = model_low, high = model_high)
+}
+
+# Add surrogate compounds
+standard_list$`Linalool oxide` <- standard_list$Linalool
+standard_list$`.alpha.-Phellandrene` <- standard_list$`.gamma.-Terpinene`
+standard_list$`.alpha.-Terpinene` <- standard_list$`.gamma.-Terpinene`
+standard_list$`.beta.-Ocimene` <- standard_list$`.beta.-Myrcene`
+standard_list$`.beta.-Phellandrene` <- standard_list$Limonene
+standard_list$`3-Thujene` <- standard_list$`3-Carene`
+standard_list$Sabinene <- standard_list$`3-Carene`
+
+# Define a function that predicts concentration given a compound and a peak area. If the peak area falls below 2,500,000 the concentration will be calculated with the low model and if it's above 2,500,000 it will be calculated with the high model.
+predict_concentration <- function(compound, area, threshold = 2500000) {
+  # Retrieve the two models for the given compound
+  models <- standard_list[[compound]]
+  if(is.null(models)){
+    stop("Compound not found in the calibration Standards")
+  }
+  
+  # Choose the model based on the area threshold
+  if(area < threshold) {
+    pred <- predict(models$low, newdata = data.frame(Area = area))
+  } else {
+    pred <- predict(models$high, newdata = data.frame(Area = area))
+  }
+  return(pred)
+}
+
+# Calculate concentrations based on the response curve and winzorized peak area
+Monoterpenes$Concen <- mapply(predict_concentration, 
+                                           compound = Monoterpenes$Corrected_Label, 
+                                           area = Monoterpenes$Value_Winz)
+
+# Calculate weight based on compound density
+
+Monoterpene_density <- data.frame(Monoterpene = c(".alpha.-Phellandrene", ".alpha.-Pinene", ".alpha.-Terpinene", 
+".beta.-Myrcene", ".beta.-Ocimene", ".beta.-Phellandrene", ".beta.-Pinene", 
+".gamma.-Terpinene", "3-Thujene", "Camphene", "Limonene", "Linalool oxide", 
+"Linalool", "p-Cymene", "Sabinene", "Terpinolene"), Density = c(0.846, 0.858, 0.841, 
+  0.794, 0.789, 0.846, 0.872, 
+  0.841, 0.86, 0.842, 0.841, 0.95, 
+  0.858, 0.857, 0.846, 0.864))
+
+# Calculate tissue concentration
+Monoterpenes$ConcentrationUGpGFW <- (Monoterpenes$Concen * 0.2 * 
+                            Monoterpene_density$Density[match(Monoterpenes$Corrected_Label, 
+                                     Monoterpene_density$Monoterpene)])/Monoterpenes$Phloem..mg.*1000
+rm(list = setdiff(ls(),c("Monoterpenes","Climatedata")))
+
+```
+
+```{r Pivot monoterpene dataset}
+# Change data set to wide format
+Monoterpenes_Wide <- Monoterpenes %>%
+                dplyr::select(-c(Solvent..ul.,Value, upper_quantile, Value_Winz, Concen))
+# Define factor variables
+Monoterpenes_Wide$Status <- as.factor(Monoterpenes_Wide$Status)
+Monoterpenes_Wide$Day_of_year <- as.factor(Monoterpenes_Wide$Day_of_year)
+Monoterpenes_Wide$Site <- as.factor(Monoterpenes_Wide$Site)
+Monoterpenes_Wide$Location <- as.factor(Monoterpenes_Wide$Location)
+Monoterpenes_Wide$Treatment <- as.factor(Monoterpenes_Wide$Treatment)
+
+# Pivot the dataset for monoterpenes
+Monoterpenes_Wide <- Monoterpenes_Wide %>%
+  pivot_wider(
+    names_from = Corrected_Label, # Use unique values from the Corrected_Label column as new column names
+    values_from = ConcentrationUGpGFW,          # Use the 'value' column for the data in the new columns
+    values_fn = sum,              # Function to sum duplicate values
+    values_fill = 0
+  )
+
+# Calculate total concentration of monoterpenes
+Monoterpenes_Wide$Total <- rowSums(Monoterpenes_Wide[15:30],)
+
+```
+
+## Plot output for individual monoterpenes and correlation
+
+```{r Individual monoterpene analysis}
+monoterpene_vars <- c(".alpha.-Phellandrene", ".alpha.-Pinene", ".alpha.-Terpinene", 
+".beta.-Myrcene", ".beta.-Ocimene", ".beta.-Phellandrene", ".beta.-Pinene", 
+".gamma.-Terpinene", "3-Thujene", "Camphene", "Limonene", "Linalool oxide", 
+"Linalool", "p-Cymene", "Sabinene", "Terpinolene")
+
+# Initialize an empty list to store predicted data frames for each compound
+predicted_list <- list()
+
+# Loop over each monoterpene variable
+for (var in monoterpene_vars) {
+  # Create a formula dynamically; note the use of backticks to account for unusual characters in variable names.
+  formula <- as.formula(paste0("`", var, "` ~ Day_of_year * Status"))
+  
+  # Fit the model (using a gaussian family here, which is equivalent to lm)
+  model <- glm(formula, data = Monoterpenes_Wide, family = gaussian())
+  
+  # Get predicted values from the model
+  Monoterpenes_Wide$Predicted <- predict(model)
+  
+  # Create a temporary dataframe containing the key columns and the current compound name.
+  temp_df <- Monoterpenes_Wide %>%
+    dplyr::select(Day_of_year, Status, Predicted) %>%
+    mutate(Compound = var)
+  
+  # Store the temporary dataframe in the list using the compound name as key.
+  predicted_list[[var]] <- temp_df
+}
+
+# Combine predictions for all compounds into one data frame
+predicted_all <- bind_rows(predicted_list)
+
+# Figure S1. Concentration of individual monoterpenes in phloem samples during the growth season
+Figure_S1 <- ggplot(predicted_all, aes(x = Day_of_year, y = Predicted, color = Status, group = Status)) +
+  geom_line(linewidth = 1) +
+  geom_point() +
+  facet_wrap(~ Compound, scales = "free_y") +
+  labs(title = "Figure S1. Individual Monoterpene Concentrations During the Growth Season",
+       x = "Day of Year",
+       y = expression(Concentration ~ (mu*g/g ~ FW)),
+       color = "Status") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Save the plot as a PDF with custom dimensions (e.g., width = 16 inches, height = 12 inches)
+ggsave("Figure_S1.pdf", plot = Figure_S1, width = 16, height = 12, units = "in")
+
+# Figure S2. Correlation among individual monoterpenes in phloem samples during the growth season
+Figure_S2 <- ggpairs(
+  Monoterpenes_Wide[ , 15:30],
+  lower = list(continuous = wrap("points", alpha = 0.5, size = 1)),
+  upper = list(continuous = wrap("cor", size = 4, method = "pearson")),
+  diag = list(continuous = wrap("densityDiag")),
+  progress = FALSE
+)+
+  ggtitle("Figure S2. Pairwise correlations among monoterpenes") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggsave("Figure_S2.pdf", plot = Figure_S2, width = 16, height = 12, units = "in")
+
+rm(list = setdiff(ls(), c("Climatedata", "Monoterpenes", "Monoterpenes_Wide")))
+```
+
+
+    ***The rest of the code chunks are arranged based on the results section***
+
+# 3.1. Constitutive and induced defense as a function of climate factors
+
+
+## Site effect
+```{r Site effect}
+Control_trees <- Monoterpenes_Wide[Monoterpenes_Wide$Treatment == "Control",]
+Control_trees <- Control_trees[,c(1:6,9:13,31)]
+model_Site <- lm(log(Total) ~ Day_of_year + Site, 
+                       data = Control_trees)
+
+# Table S1. Results of complete block ANOVA of site effect on log of total monoterpene concentration
+coef_df <- tidy(model_Site)
+fit_df <- glance(model_Site)
+
+coef_df <- coef_df[, c("term", "estimate", "std.error", "statistic", "p.value")]
+names(coef_df) <- c("Term", "Estimate", "SE", "t", "p-value")
+coef_df$`p-value` <- format.pval(
+  coef_df$`p-value`,
+  digits = 3,
+  eps = 0.001
+)
+ft_coef <- flextable(coef_df)
+ft_coef <- autofit(ft_coef)
+
+
+fit_out <- data.frame(
+  Statistic = c(
+    "Residual SE",
+    "R²",
+    "Adjusted R²",
+    "F statistic",
+    "Model p-value"
+  ),
+  Value = c(
+    round(fit_df$sigma, 3),
+    round(fit_df$r.squared, 3),
+    round(fit_df$adj.r.squared, 3),
+    round(fit_df$statistic, 2),
+    format.pval(fit_df$p.value, eps = 0.001)
+  )
+)
+
+ft_fit <- autofit(flextable(fit_out))
+
+doc <- read_docx()
+
+doc <- body_add_par(
+  doc,
+  "Table S1. Results of complete block ANOVA of site effect on log of total monoterpene concentration",
+  style = "Normal"
+)
+doc <- body_add_par(doc, "Model: log(Total monoterpenes) ~ Day of year + Site", style = "Normal")
+doc <- body_add_par(doc, "Model coefficients", style = "centered")
+doc <- body_add_flextable(doc, ft_coef)
+doc <- body_add_par(doc, "Model fit statistics", style = "centered")
+doc <- body_add_flextable(doc, ft_fit)
+
+# Extract the effect of Site from the model
+Site_effect <- as.data.frame(effect("Site", model_Site))
+
+# Tukey's HSD Test
+tukey_res <- glht(model_Site, linfct = mcp(Site = "Tukey"))
+# Add letters to Site_effect dataframe
+Site_effect$Significance <- cld(tukey_res)$mcletters$Letters
+
+# Create a ggplot for the Site effect
+Figure_2 <- ggplot(Site_effect, aes(x = Site, y = exp(fit))) +
+  geom_point(aes(color = Climatedata$Mean_temperature, size = Climatedata$Elevation),) +  # Color based on Temperature
+  scale_size_continuous(range = c(5, 12)) + # Adjust min and max sizes
+  scale_color_gradient(low = "blue", high = "red") +
+  geom_errorbar(aes(ymin = exp(lower), ymax = exp(upper)), width = .10, color = "darkblue") +  # Confidence intervals
+  geom_text(aes(label = Significance, y = exp(upper)-10), position = position_jitter(width = 0.0, height = 0.0), size = 10, color = "black") +  # Add significance letters
+  labs(
+    x = "Site",
+    y = expression('Monoterpenes Concentration' ~ (mu*g/g ~ FW)),
+    color = "Temperature (\u00B0C)",
+    size = "Elevation (M)"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Helvetica"),
+    axis.text.x = element_text(size = 20, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 20, hjust = 1),
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.title = element_text(size = 20),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+  )
+
+ggsave("Figure_2.pdf", plot = Figure_2, width = 30, height = 20, units = "cm")
+
+rm(list = setdiff(ls(), c("Climatedata", "Monoterpenes", "Monoterpenes_Wide", "Control_trees", "doc")))
+```
+
+## Average temprature effect
+
+```{r Temperature effect}
+avg_temp <- Control_trees %>%
+  group_by(Mean_temperature) %>%
+  summarize(Mean_value = mean(log(Total), na.rm = TRUE))
+
+model_Tmean <- lm(log(Total) ~ Day_of_year + Mean_temperature, 
+                       data = Control_trees)
+Table_S2 <- summary(model_Tmean)
+
+# Table S2. Results of log-linear ANOVA analysis of average annual temperature effect on total monoterpene concentration
+coef_df <- tidy(model_Tmean)
+fit_df <- glance(model_Tmean)
+
+coef_df <- coef_df[, c("term", "estimate", "std.error", "statistic", "p.value")]
+names(coef_df) <- c("Term", "Estimate", "SE", "t", "p-value")
+coef_df$`p-value` <- format.pval(
+  coef_df$`p-value`,
+  digits = 3,
+  eps = 0.001
+)
+ft_coef <- flextable(coef_df)
+ft_coef <- autofit(ft_coef)
+
+
+fit_out <- data.frame(
+  Statistic = c(
+    "Residual SE",
+    "R²",
+    "Adjusted R²",
+    "F statistic",
+    "Model p-value"
+  ),
+  Value = c(
+    round(fit_df$sigma, 3),
+    round(fit_df$r.squared, 3),
+    round(fit_df$adj.r.squared, 3),
+    round(fit_df$statistic, 2),
+    format.pval(fit_df$p.value, eps = 0.001)
+  )
+)
+
+ft_fit <- autofit(flextable(fit_out))
+
+doc <- body_add_break(doc)
+doc <- body_add_par(
+  doc,
+  "Table S2. Results of log-linear ANOVA analysis of average annual temperature effect on total monoterpene concentration",
+  style = "Normal"
+)
+doc <- body_add_par(doc, "Model: log(Total monoterpenes) ~ Day of year + Mean temperature", style = "Normal")
+doc <- body_add_par(doc, "Model coefficients", style = "centered")
+doc <- body_add_flextable(doc, ft_coef)
+doc <- body_add_par(doc, "Model fit statistics", style = "centered")
+doc <- body_add_flextable(doc, ft_fit)
+
+Tmean_effect <- as.data.frame(effect("Mean_temperature", model_Tmean))
+
+# Define parameters shown on the plot
+slope <- round(exp(Table_S2$coefficients[grep("Mean_temperature", rownames(Table_S2$coefficients)), 1]), 3) # Slope coefficient
+p_val <- round(Table_S2$coefficients[grep("Mean_temperature", rownames(Table_S2$coefficients)), 4],3) # p-value for slope
+significance <- case_when(
+  p_val < 0.001 ~ "p <0.001",
+  p_val < 0.01  ~ "p <0.01",
+  p_val < 0.05  ~ "p <0.05",
+  TRUE          ~ ""
+)
+
+# Plot
+Figure_3a <- ggplot(Tmean_effect, aes(x = Mean_temperature, y = exp(fit))) +
+  geom_smooth(method = "lm", color = "blue", se = FALSE) +
+  geom_point(data = avg_temp, aes(x = Mean_temperature, y = exp(Mean_value),
+                                  color = Climatedata$Mean_temperature, size = Climatedata$Elevation)) +  # Raw means in red
+  scale_size_continuous(range = c(5, 12)) + # Adjust min and max sizes
+  scale_color_gradient(low = "blue", high = "red") +
+  annotate("text", x = min(Tmean_effect$Mean_temperature), y = min(exp(Tmean_effect$fit)), 
+        label = as.expression(bquote("\nMultiplicative Coefficient =" ~ .(slope) ^ .(significance))),
+           hjust = 0, vjust = -11, size = 6) +
+  geom_errorbar(aes(x = avg_temp$Mean_temperature, ymin = exp(avg_temp$Mean_value)+exp(lower)-exp(fit), ymax = 
+                      exp(avg_temp$Mean_value)+exp(upper)-exp(fit)), 
+                width = 0.05, color = "darkblue") +  # Confidence intervals
+    annotate("text", x = 1, y = 200, label = "a", size = 12) +
+
+  labs(
+    x = "Average Annual Temperature (\u00B0C)",
+    y = expression('Monoterpene Concentration ' ~ (mu*g/g ~ FW)),
+    color = "Temperature (\u00B0C)",
+    size = "Elevation (M)"
+  ) +
+  theme_minimal() +
+    theme(
+    text = element_text(family = "Helvetica"),
+    axis.text.x = element_text(size = 20, hjust = 1),
+    axis.text.y = element_text(size = 20, hjust = 1),
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 18),
+    legend.text = element_text(size = 18),
+    legend.title = element_text(size = 20),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+  )
+
+rm(list = setdiff(ls(), c("Climatedata", "Monoterpenes", "Monoterpenes_Wide", "Control_trees", "doc", "Figure_3a", "Tmean_effect", "avg_temp")))
+```
+
+## Precipitation effect
+
+```{r Precipitation effect}
+avg_prep <- Control_trees %>%
+  group_by(Precipitation) %>%
+  summarize(Mean_value = mean(log(Total), na.rm = TRUE))
+Control_trees$TreeID <- as.factor(Control_trees$TreeID)
+model_PPT <- lm(log(Total) ~ Day_of_year + Precipitation, 
+                       data = Control_trees)
+
+Table_S3 <- summary(model_PPT)
+
+# Table S3. Results of log-linear ANOVA analysis of annual precipitation effect on total monoterpene concentration
+coef_df <- tidy(model_PPT)
+fit_df <- glance(model_PPT)
+
+coef_df <- coef_df[, c("term", "estimate", "std.error", "statistic", "p.value")]
+names(coef_df) <- c("Term", "Estimate", "SE", "t", "p-value")
+coef_df$`p-value` <- format.pval(
+  coef_df$`p-value`,
+  digits = 3,
+  eps = 0.001
+)
+ft_coef <- flextable(coef_df)
+ft_coef <- autofit(ft_coef)
+
+
+fit_out <- data.frame(
+  Statistic = c(
+    "Residual SE",
+    "R²",
+    "Adjusted R²",
+    "F statistic",
+    "Model p-value"
+  ),
+  Value = c(
+    round(fit_df$sigma, 3),
+    round(fit_df$r.squared, 3),
+    round(fit_df$adj.r.squared, 3),
+    round(fit_df$statistic, 2),
+    format.pval(fit_df$p.value, eps = 0.001)
+  )
+)
+
+ft_fit <- autofit(flextable(fit_out))
+
+doc <- body_add_break(doc)
+doc <- body_add_par(
+  doc,
+  "Table S3. Results of log-linear ANOVA analysis of annual precipitation effect on total monoterpene concentration",
+  style = "Normal"
+)
+doc <- body_add_par(doc, "Model: log(Total monoterpenes) ~ Day of year + Annual precipitation", style = "Normal")
+doc <- body_add_par(doc, "Model coefficients", style = "centered")
+doc <- body_add_flextable(doc, ft_coef)
+doc <- body_add_par(doc, "Model fit statistics", style = "centered")
+doc <- body_add_flextable(doc, ft_fit)
+
+rm(list = setdiff(ls(), c("Climatedata", "Monoterpenes", "Monoterpenes_Wide", "Control_trees","doc", "Figure_3a", "Tmean_effect", "avg_temp")))
+```
+
+## VPD effect
+
+```{r VPD effect}
+avg_vpd <- Control_trees %>%
+  group_by(Maximum_VPD) %>%
+  summarize(Mean_value = mean(log(Total), na.rm = TRUE))
+
+model_VPD <- lm(log(Total) ~ Day_of_year + Maximum_VPD, 
+                       data = Control_trees)
+
+Table_S4 <- summary(model_VPD)
+# Table S4. Results of log-linear ANOVA analysis of annual maximum vapor pressure deficit effect on total monoterpene concentration
+coef_df <- tidy(model_VPD)
+fit_df <- glance(model_VPD)
+
+coef_df <- coef_df[, c("term", "estimate", "std.error", "statistic", "p.value")]
+names(coef_df) <- c("Term", "Estimate", "SE", "t", "p-value")
+coef_df$`p-value` <- format.pval(
+  coef_df$`p-value`,
+  digits = 3,
+  eps = 0.001
+)
+ft_coef <- flextable(coef_df)
+ft_coef <- autofit(ft_coef)
+
+
+fit_out <- data.frame(
+  Statistic = c(
+    "Residual SE",
+    "R²",
+    "Adjusted R²",
+    "F statistic",
+    "Model p-value"
+  ),
+  Value = c(
+    round(fit_df$sigma, 3),
+    round(fit_df$r.squared, 3),
+    round(fit_df$adj.r.squared, 3),
+    round(fit_df$statistic, 2),
+    format.pval(fit_df$p.value, eps = 0.001)
+  )
+)
+
+ft_fit <- autofit(flextable(fit_out))
+
+doc <- body_add_break(doc)
+doc <- body_add_par(
+  doc,
+  "Table S4. Results of log-linear ANOVA analysis of annual maximum vapor pressure deficit effect on total monoterpene concentration",
+  style = "Normal"
+)
+doc <- body_add_par(doc, "Model: log(Total monoterpenes) ~ Day of year + Maximum VPD", style = "Normal")
+doc <- body_add_par(doc, "Model coefficients", style = "centered")
+doc <- body_add_flextable(doc, ft_coef)
+doc <- body_add_par(doc, "Model fit statistics", style = "centered")
+doc <- body_add_flextable(doc, ft_fit)
+
+
+VPD_effect <- as.data.frame(effect("Maximum_VPD", model_VPD))
+
+# Define parameters shown on the plot
+slope <- round(exp(Table_S4$coefficients[grep("Maximum_VPD", rownames(Table_S4$coefficients)), 1]), 3) # Slope coefficient
+p_val <- Table_S4$coefficients[grep("Maximum_VPD", rownames(Table_S4$coefficients)), 4] # p-value for slope
+significance <- case_when(
+  p_val < 0.001 ~ "p <0.001",
+  p_val < 0.01  ~ "p <0.01",
+  p_val < 0.05  ~ "p <0.05",
+  TRUE          ~ ""
+)
+# Plot
+Figure_3b <- ggplot(VPD_effect, aes(x = Maximum_VPD, y = exp(fit))) +
+  geom_smooth(method = "lm", color = "blue", se = FALSE) +
+  geom_point(data = avg_vpd, aes(x = Maximum_VPD, y = exp(Mean_value),
+                                  color = Climatedata$Mean_temperature, size = Climatedata$Elevation)) +  # Raw means in red
+  scale_size_continuous(range = c(5, 12)) + # Adjust min and max sizes
+  scale_color_gradient(low = "blue", high = "red") +
+  annotate("text", x = min(VPD_effect$Maximum_VPD), y = min(exp(VPD_effect$fit)), 
+        label = as.expression(bquote("\nMultiplicative Coefficient =" ~ .(slope) ^ .(significance))),
+           hjust = 0, vjust = -11, size = 6) +
+  geom_errorbar(aes(x = avg_vpd$Maximum_VPD, ymin = exp(avg_vpd$Mean_value)+exp(lower)-exp(fit), ymax =
+                      exp(avg_vpd$Mean_value)+exp(upper)-exp(fit)), 
+                width = 0.01, color = "darkblue") +  # Confidence intervals
+    annotate("text", x = 0.7, y = 195, label = "b", size = 12) +
+
+  labs(
+    x = "Maximum vapor pressure deficit (kPa)",
+    y = expression('Monoterpene Concentration ' ~ (mu*g/g ~ FW)),
+    color = "Temperature (\u00B0C)",
+    size = "Elevation (M)"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Helvetica"),
+    axis.text.x = element_text(size = 20, hjust = 1),
+    axis.text.y = element_text(size = 20, hjust = 1),
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 18),
+    legend.text = element_text(size = 18),
+    legend.title = element_text(size = 20),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+  )
+
+Figure_3 <- grid.arrange(Figure_3a, Figure_3b, ncol = 1)
+ggsave("Figure_3.pdf", plot = Figure_3, width = 24, height = 30, units = "cm")
+
+rm(list = setdiff(ls(), c("Climatedata", "Monoterpenes", "Monoterpenes_Wide", "Control_trees","doc")))
+```
+
+
+# 3.2. Survival as a function of constitutive and induced defense
+
+Our analysis could not support this hypothesis. Defense induction was not affected by the environmental variables. Although colonized trees showed a high correlation with site elevation. 
+
+## Extract baited trees in a new dataframe and add average control trees column as baseline and calculate fold change
+```{r Calculate fold change}
+
+# Separate baited trees from control in a new dataframe
+Baited_trees <- Monoterpenes_Wide[Monoterpenes_Wide$Treatment == "Baited",]
+# Drop COntrol level
+Baited_trees$Status <- droplevels(Baited_trees$Status)
+Baited_trees <- Baited_trees[, c(1:4,6:13,31)]
+
+# Add Control trees' average by site and location as Baseline
+Baited_trees <- merge(Baited_trees, 
+                      setNames(aggregate(Total ~ Site + Location + Day_of_year, data = Control_trees, mean), 
+                               c("Site", "Location", "Day_of_year", "Baseline")), 
+                      by = c("Site", "Location", "Day_of_year"), all.x = TRUE)
+Baited_trees <- Baited_trees %>%
+  mutate(Site = factor(Site, levels = c("Grant", "Alma", "Empire", "Rabbit ears", "Cameron pass")))
+# Calculate fold change
+Baited_trees$Fold_change <- Baited_trees$Total/Baited_trees$Baseline
+```
+
+
+## Effect of environmental variables on induced response
+
+To compare flight period induction I used day 170-190 concentrations.
+To compare Post-flight period induction I used day 200-260 concentrations.
+
+```{r Temperature effect on Induction}
+# Flight period induction
+Flight_induc <- lm(Fold_change ~ Day_of_year + Mean_temperature + Status, 
+                       data = Baited_trees[Baited_trees$Day_of_year %in% c("170", "180", "190"),])
+# Post-flight induction
+Post_flight_induc <- lm(Fold_change ~ Day_of_year + Mean_temperature + Status, 
+                       data = Baited_trees[Baited_trees$Day_of_year %in% c("200", "210", "225","240", "260"),])
+
+# Table S5. Results of complete block ANOVA analysis of average annual temperature effect on induced fold change monoterpene concentration
+coef_df <- tidy(Flight_induc)
+fit_df <- glance(Flight_induc)
+
+coef_df <- coef_df[, c("term", "estimate", "std.error", "statistic", "p.value")]
+names(coef_df) <- c("Term", "Estimate", "SE", "t", "p-value")
+coef_df$`p-value` <- format.pval(
+  coef_df$`p-value`,
+  digits = 3,
+  eps = 0.001
+)
+ft_coef <- flextable(coef_df)
+ft_coef <- autofit(ft_coef)
+
+
+fit_out <- data.frame(
+  Statistic = c(
+    "Residual SE",
+    "R²",
+    "Adjusted R²",
+    "F statistic",
+    "Model p-value"
+  ),
+  Value = c(
+    round(fit_df$sigma, 3),
+    round(fit_df$r.squared, 3),
+    round(fit_df$adj.r.squared, 3),
+    round(fit_df$statistic, 2),
+    format.pval(fit_df$p.value, eps = 0.001)
+  )
+)
+
+ft_fit <- autofit(flextable(fit_out))
+
+doc <- body_add_break(doc)
+doc <- body_add_par(
+  doc,
+  "Table S5. Results of complete block ANOVA analysis of average annual temperature effect on induced fold change monoterpene concentration",
+  style = "Normal"
+)
+doc <- body_add_par(doc,"")
+doc <- body_add_par(doc, "Table S5-1: Flight period induced response", style = "Normal")
+doc <- body_add_par(doc, "Model: Fold change ~ Day of year + Mean temperature + Status", style = "Normal")
+doc <- body_add_par(doc, "Model coefficients", style = "centered")
+doc <- body_add_flextable(doc, ft_coef)
+doc <- body_add_par(doc, "Model fit statistics", style = "centered")
+doc <- body_add_flextable(doc, ft_fit)
+
+
+coef_df <- tidy(Post_flight_induc)
+fit_df <- glance(Post_flight_induc)
+
+coef_df <- coef_df[, c("term", "estimate", "std.error", "statistic", "p.value")]
+names(coef_df) <- c("Term", "Estimate", "SE", "t", "p-value")
+coef_df$`p-value` <- format.pval(
+  coef_df$`p-value`,
+  digits = 3,
+  eps = 0.001
+)
+ft_coef <- flextable(coef_df)
+ft_coef <- autofit(ft_coef)
+
+
+fit_out <- data.frame(
+  Statistic = c(
+    "Residual SE",
+    "R²",
+    "Adjusted R²",
+    "F statistic",
+    "Model p-value"
+  ),
+  Value = c(
+    round(fit_df$sigma, 3),
+    round(fit_df$r.squared, 3),
+    round(fit_df$adj.r.squared, 3),
+    round(fit_df$statistic, 2),
+    format.pval(fit_df$p.value, eps = 0.001)
+  )
+)
+
+ft_fit <- autofit(flextable(fit_out))
+
+doc <- body_add_par(doc,"")
+doc <- body_add_par(doc, "Table S5-2: Post-flight period induced response", style = "Normal")
+doc <- body_add_par(doc, "Model: Fold change ~ Day of year + Mean temperature + Status", style = "Normal")
+doc <- body_add_par(doc, "Model coefficients", style = "centered")
+doc <- body_add_flextable(doc, ft_coef)
+doc <- body_add_par(doc, "Model fit statistics", style = "centered")
+doc <- body_add_flextable(doc, ft_fit)
+
+rm(list = setdiff(ls(), c("Climatedata", "Monoterpenes", "Monoterpenes_Wide", "Control_trees", "Baited_trees","doc")))
+```
+
+## Compare attack and mortality rate between the sites
+
+Here I compare entry holes density between the sites along with the contingency table for beetle-killed and alive trees in each site.
+
+```{r Attack rate and mortality}
+Status_table <- Baited_trees %>%
+  distinct(TreeID, .keep_all = TRUE) %>%  # Keep only one row per TreeID
+  group_by(Site, Status) %>%
+  summarise(Status_count = n(), .groups = "drop")  # Count occurrences per Site
+
+# ANOVA for Entry holes density
+model_Entryholes <- lm(Entryholes ~ Site, 
+                       data = distinct(Baited_trees,TreeID, .keep_all = TRUE))
+
+# Table S6. Results of ANOVA analysis on Entry hole density of trees in each site
+coef_df <- tidy(model_Entryholes)
+fit_df <- glance(model_Entryholes)
+
+coef_df <- coef_df[, c("term", "estimate", "std.error", "statistic", "p.value")]
+names(coef_df) <- c("Term", "Estimate", "SE", "t", "p-value")
+coef_df$`p-value` <- format.pval(
+  coef_df$`p-value`,
+  digits = 3,
+  eps = 0.001
+)
+ft_coef <- flextable(coef_df)
+ft_coef <- autofit(ft_coef)
+
+
+fit_out <- data.frame(
+  Statistic = c(
+    "Residual SE",
+    "R²",
+    "Adjusted R²",
+    "F statistic",
+    "Model p-value"
+  ),
+  Value = c(
+    round(fit_df$sigma, 3),
+    round(fit_df$r.squared, 3),
+    round(fit_df$adj.r.squared, 3),
+    round(fit_df$statistic, 2),
+    format.pval(fit_df$p.value, eps = 0.001)
+  )
+)
+
+ft_fit <- autofit(flextable(fit_out))
+
+doc <- body_add_break(doc)
+doc <- body_add_par(
+  doc,
+  "Table S6. Results of ANOVA analysis on Entry hole density of trees in each site",
+  style = "Normal"
+)
+doc <- body_add_par(doc, "Model: Entryholes ~ Site", style = "Normal")
+doc <- body_add_par(doc, "Model coefficients", style = "centered")
+doc <- body_add_flextable(doc, ft_coef)
+doc <- body_add_par(doc, "Model fit statistics", style = "centered")
+doc <- body_add_flextable(doc, ft_fit)
+
+# Plot Entry holes boxplot
+Figure_4a <- ggplot(distinct(Baited_trees, TreeID, .keep_all = TRUE), 
+             aes(x = Site, y = Entryholes)) +
+  geom_boxplot(fill = "white", color = "black") +
+  labs(x = element_blank(), 
+       y = expression("Entry hole Density" ~ (m^-2))) +
+  annotate("text", x = 0.8, y = 75, label = "a", size = 8) +
+  coord_cartesian(clip = "off") +
+theme_minimal() +
+  theme(
+    legend.position = "none", 
+    axis.text.x = element_blank(), 
+    panel.border = element_rect(color = "grey", fill = NA, linewidth = 1)
+  )   # Turn off the legend
+
+# Plot status bar chart
+Figure_4b <- ggplot(Status_table, aes(x = Site, y = Status_count, fill = Status)) +
+  geom_bar(
+    stat = "identity",
+    color = "black",     # bar border
+    position = "stack"  # default; change if needed
+  ) +
+  scale_fill_grey(start = 0, end = 1) +
+  scale_y_continuous(             # y-axis from 0 to 11
+    breaks = 0:10                   # only integer values
+  ) +
+  labs(x = "Site", y = "Number of Trees") +
+  annotate("text", x = 0.8, y = 9, label = "b", size = 8) +
+  coord_cartesian(clip = "off") +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    panel.border = element_rect(color = "grey", fill = NA, linewidth = 1)
+  )
+# Arrange plots vertically
+Figure_4 <- grid.arrange(Figure_4a, Figure_4b, ncol = 1)
+ggsave("Figure_4.pdf", plot = Figure_4, width = 12, height = 18, units = "cm")
+
+rm(list = setdiff(ls(), c("Climatedata", "Monoterpenes", "Monoterpenes_Wide", "Control_trees", "Baited_trees", "doc")))
+```
+
+
+## Concentration in trees under different status
+
+```{r Concentration in trees}
+model_status <- lm(Total ~ Day_of_year * Status, data = Monoterpenes_Wide)
+
+# Get predictions with standard errors
+predictions <- predict(model_status, newdata = Monoterpenes_Wide, se.fit = TRUE)
+
+# Add predicted values and confidence intervals to the dataframe
+Monoterpenes_Wide$Predicted <- predictions$fit
+Monoterpenes_Wide$SE <- predictions$se.fit
+Monoterpenes_Wide$CI_upper <- Monoterpenes_Wide$Predicted + 1.96 * Monoterpenes_Wide$SE
+Monoterpenes_Wide$CI_lower <- Monoterpenes_Wide$Predicted - 1.96 * Monoterpenes_Wide$SE
+Monoterpenes_Wide$Day_of_year <- as.character(Monoterpenes_Wide$Day_of_year)
+Monoterpenes_Wide$Day_of_year <- as.numeric(Monoterpenes_Wide$Day_of_year)
+position_jitter <- position_dodge(width = 3)
+# Create the ggplot
+Figure_5 <- ggplot(Monoterpenes_Wide, aes(x = Day_of_year, y = Predicted, linetype = Status, color = Status, group = Status)) +
+  geom_line(linewidth = 1) +
+  geom_point(position = position_jitter) +
+  geom_errorbar(aes(ymin = CI_lower, ymax = CI_upper), width = 4, linewidth = 0.9,position = position_jitter) +
+  scale_linetype_manual(values = c("solid", "solid", "dashed", "dashed")) +
+  scale_color_manual(values = c("black", "grey50", "black", "grey50")) +
+  labs(
+    x = "Day of year",
+    y = expression('Total Monoterpene Concentration ' ~ (mu*g/g ~ FW))
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Helvetica"),
+    axis.text.x = element_text(size = 20, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 20, hjust = 1),
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = c(0.8, 0.85),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+  )
+# Save the plot
+ggsave("Figure_5.pdf", plot = Figure_5, width = 35, height = 18, units = "cm")
+Monoterpenes_Wide$Day_of_year <- as.factor(Monoterpenes_Wide$Day_of_year)
+
+rm(list = setdiff(ls(), c("Climatedata", "Monoterpenes", "Monoterpenes_Wide", "Control_trees", "Baited_trees","doc")))
+Monoterpenes_Wide <- Monoterpenes_Wide[,setdiff(names(Monoterpenes_Wide), c("Predicted", "SE", "CI_upper","CI_lower"))]
+```
+
+## Compare the status of baited trees
+
+```{r Concentration in different status}
+model_status <- lm(Fold_change ~ Day_of_year + Status, 
+                       data = Baited_trees)
+
+# Table S7. Result of Complete block ANOVA analysis of fold change concentration of monoterpenes in trees with different status
+coef_df <- tidy(model_status)
+fit_df <- glance(model_status)
+
+coef_df <- coef_df[, c("term", "estimate", "std.error", "statistic", "p.value")]
+names(coef_df) <- c("Term", "Estimate", "SE", "t", "p-value")
+coef_df$`p-value` <- format.pval(
+  coef_df$`p-value`,
+  digits = 3,
+  eps = 0.001
+)
+ft_coef <- flextable(coef_df)
+ft_coef <- autofit(ft_coef)
+
+
+fit_out <- data.frame(
+  Statistic = c(
+    "Residual SE",
+    "R²",
+    "Adjusted R²",
+    "F statistic",
+    "Model p-value"
+  ),
+  Value = c(
+    round(fit_df$sigma, 3),
+    round(fit_df$r.squared, 3),
+    round(fit_df$adj.r.squared, 3),
+    round(fit_df$statistic, 2),
+    format.pval(fit_df$p.value, eps = 0.001)
+  )
+)
+
+ft_fit <- autofit(flextable(fit_out))
+
+doc <- body_add_break(doc)
+doc <- body_add_par(
+  doc,
+  "Table S7. Result of Complete block ANOVA analysis of fold change concentration of monoterpenes in trees with different status",
+  style = "Normal"
+)
+
+doc <- body_add_par(doc, "Model: Fold change ~ Day of year + Status", style = "Normal")
+doc <- body_add_par(doc, "Model coefficients", style = "centered")
+doc <- body_add_flextable(doc, ft_coef)
+doc <- body_add_par(doc, "Model fit statistics", style = "centered")
+doc <- body_add_flextable(doc, ft_fit)
+
+# Add predicted values
+Baited_trees$Predicted <- predict(model_status)
+
+Status_effect <- as.data.frame(effect("Status", model_status))
+
+# Tukey's HSD Test
+tukey_status <- glht(model_status, linfct = mcp(Status = "Tukey"))
+# Add letters to Status_effect dataframe
+Status_effect$Significance <- cld(tukey_status)$mcletters$Letters
+
+
+Figure_6 <- ggplot(Status_effect, aes(x = Status, y = fit)) +
+  geom_point(size = 5) +  # Color based on Temperature
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = .10, color = "black", linewidth = 1) +  # Confidence intervals
+  geom_text(aes(label = Significance, y = upper+.1), position = position_jitter(width = 0.0, height = 0.0), size = 10, color = "black") +  # Add significance letters
+  labs(
+    x = "Tree status",
+    y = "FC - Total Monoterpene",
+  ) +
+  theme_minimal() +
+    theme(
+    text = element_text(family = "Helvetica"),
+    axis.text.x = element_text(size = 20, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 20, hjust = 1),
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+  )
+
+ggsave("Figure_6.pdf", plot = Figure_6, width = 25, height = 18, units = "cm")
+rm(list = setdiff(ls(), c("Climatedata", "Monoterpenes", "Monoterpenes_Wide", "Control_trees", "Baited_trees","doc")))
+```
+
+## Logistic analysis between beetle-killed and living trees
+For this analysis both colonized and live trees were pooled as living individuals.
+Two different models were applied, one for during the flight period and one for after flight
+```{r Monoterpene and survival}
+# Create a new dataset
+Baited_logistic_data <- Baited_trees[,c(1:5,15)]
+Baited_logistic_data$Status <- as.character(Baited_logistic_data$Status)
+
+# Change status to 0 and 1 for logistic analysis
+Baited_logistic_data$Survival <- as.integer(Baited_logistic_data$Status != "Beetle-killed")
+
+
+# Remove outliers larger than 5 fold change
+Baited_logistic_data <- Baited_logistic_data[Baited_logistic_data$Fold_change <= 5, ]
+
+# Divide dataset to seasons
+Flight_data <- Baited_logistic_data[Baited_logistic_data$Day_of_year %in% c(160, 170, 180, 190),]
+Postflight_data <- Baited_logistic_data[Baited_logistic_data$Day_of_year %in% c(200, 210, 225, 240, 260),]
+
+
+# Combine data and model for constitutive and early season
+
+Flight_logistic <- glm(Survival ~ Fold_change:Day_of_year, data = Flight_data, family = binomial)
+Postflight_logistic <- glm(Survival ~ Fold_change:Day_of_year, data = Postflight_data, family = binomial)
+
+Constitutive_odds <- round(exp(Flight_logistic$coefficients[[2]]),1)
+Con_pval <- round(summary(Flight_logistic)$coefficients[2,4],2)
+
+Day170 <- round(exp(Flight_logistic$coefficients[[3]]),1)
+Day170pval <- round(summary(Flight_logistic)$coefficients[3,4],2)
+
+Day180 <- round(exp(Flight_logistic$coefficients[[4]]),1)
+Day180pval <- round(summary(Flight_logistic)$coefficients[4,4],2)
+
+Day190 <- round(exp(Flight_logistic$coefficients[[5]]),1)
+Day190pval <- round(summary(Flight_logistic)$coefficients[5,4],2)
+
+
+# Table S8. Result of logistic regression showing monoterpene concentration fold change effect on tree survival
+coef_df <- tidy(Flight_logistic)
+fit_df <- glance(Flight_logistic)
+
+coef_df <- coef_df[, c("term", "estimate", "std.error", "statistic", "p.value")]
+names(coef_df) <- c("Term", "Estimate", "SE", "t", "p-value")
+coef_df$`p-value` <- format.pval(
+  coef_df$`p-value`,
+  digits = 3,
+  eps = 0.001
+)
+ft_coef <- flextable(coef_df)
+ft_coef <- autofit(ft_coef)
+
+
+fit_out <- data.frame(
+  Statistic = c(
+    "Null deviance",
+    "Null DF",
+    "Deviance",
+    "Residual DF",
+    "AIC"
+  ),
+  Value = c(
+    round(fit_df$null.deviance, 3),
+    round(fit_df$df.null, 3),
+    round(fit_df$deviance, 3),
+    round(fit_df$df.residual, 2),
+    format.pval(fit_df$AIC, eps = 0.001)
+  )
+)
+
+ft_fit <- autofit(flextable(fit_out))
+doc <- body_add_break(doc)
+doc <- body_add_par(
+  doc,
+  "Table S8. Result of logistic regression showing monoterpene concentration fold change effect on tree survival",
+  style = "Normal"
+)
+doc <- body_add_par(doc,"")
+doc <- body_add_par(doc, "Table S8-1: Flight period survival analysis", style = "Normal")
+doc <- body_add_par(doc, "Model: Survival ~ Fold change × Day of year", style = "Normal")
+doc <- body_add_par(doc, "Model coefficients", style = "centered")
+doc <- body_add_flextable(doc, ft_coef)
+doc <- body_add_par(doc, "Model fit statistics", style = "centered")
+doc <- body_add_flextable(doc, ft_fit)
+
+
+coef_df <- tidy(Postflight_logistic)
+fit_df <- glance(Postflight_logistic)
+
+coef_df <- coef_df[, c("term", "estimate", "std.error", "statistic", "p.value")]
+names(coef_df) <- c("Term", "Estimate", "SE", "t", "p-value")
+coef_df$`p-value` <- format.pval(
+  coef_df$`p-value`,
+  digits = 3,
+  eps = 0.001
+)
+ft_coef <- flextable(coef_df)
+ft_coef <- autofit(ft_coef)
+
+
+fit_out <- data.frame(
+  Statistic = c(
+    "Null deviance",
+    "Null DF",
+    "Deviance",
+    "Residual DF",
+    "AIC"
+  ),
+  Value = c(
+    round(fit_df$null.deviance, 3),
+    round(fit_df$df.null, 3),
+    round(fit_df$deviance, 3),
+    round(fit_df$df.residual, 2),
+    format.pval(fit_df$AIC, eps = 0.001)
+  )
+)
+
+ft_fit <- autofit(flextable(fit_out))
+
+doc <- body_add_par(doc,"")
+doc <- body_add_par(doc, "Table S8-2: Post-flight period survival analysis", style = "Normal")
+doc <- body_add_par(doc, "Model: Survival ~ Fold change × Day of year", style = "Normal")
+doc <- body_add_par(doc, "Model coefficients", style = "centered")
+doc <- body_add_flextable(doc, ft_coef)
+doc <- body_add_par(doc, "Model fit statistics", style = "centered")
+doc <- body_add_flextable(doc, ft_fit)
+print(doc, "Supplementary.docx")
+
+rm(list = setdiff(ls(), c("Baited_logistic_data", "Monoterpenes_Wide", "Control_trees", "Baited_trees","doc","Con_pval",
+                          "Constitutive_odds", "Day170", "Day170pval", "Day180", "Day180pval", "Day190", "Day190pval")))
+```
+
+## Graph of the seasonal survival analysis
+
+```{r Final graph of survival}
+model_status_int <- lm(Fold_change ~ Day_of_year * Survival, 
+                       data = Baited_logistic_data)
+
+# Add predicted values and confidence intervals to the dataframe
+Baited_logistic_data$Predicted <- predict(model_status_int, newdata = Baited_logistic_data)
+Baited_logistic_data$Survival[Baited_logistic_data$Survival == "0"] <- "Killed"
+Baited_logistic_data$Survival[Baited_logistic_data$Survival == "1"] <- "Survived"
+# Create the ggplot choose colors with this code: grep("yellow", colors(), value = TRUE)
+Figure_7 <- ggplot(Baited_logistic_data, aes(x = factor(Day_of_year), y = Fold_change, fill = Survival)) +
+
+    # Add shaded regions
+  geom_rect(aes(xmin = 0.5, xmax = 4.5, ymin = 0, ymax = 5), fill = "white", alpha = 0.008, inherit.aes = FALSE,) +
+  geom_rect(aes(xmin = 4.5, xmax = 9.5, ymin = 0, ymax = 5), fill = "gray", alpha = 0.008, inherit.aes = FALSE) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("gray", "white")) +
+
+  # Add attack date
+  geom_vline(xintercept = 1.7, linetype = "dashed", color = "black", linewidth = 1) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black", size = 1) +
+  # Add text labels for shaded regions
+  annotate("text", x = 2.3, y = 4, label = "Flight period", size = 6) +
+  annotate("text", x = 7, y = 4, label = "Post-flight period", size = 6) +
+  
+  # Add odds values
+  annotate("text", x = 1, y = 3.5, 
+    label = as.expression(bquote("Odds =" ~ .(Constitutive_odds)), size = 6)) +
+  annotate("text", x = 1, y = 3.3, 
+    label = as.expression(bquote("P =" ~ .(Con_pval)), size = 6)) +
+  annotate("text", x = 2, y = 3.5, 
+    label = as.expression(bquote("Odds =" ~ .(Day170)), size = 6)) +
+  annotate("text", x = 2, y = 3.3, 
+    label = as.expression(bquote("P =" ~ .(Day170pval)), size = 6)) +
+  annotate("text", x = 3, y = 3.5, 
+    label = as.expression(bquote("Odds =" ~ .(Day180)), size = 6)) +
+  annotate("text", x = 3, y = 3.3, 
+    label = as.expression(bquote("P =" ~ .(Day180pval)), size = 6)) +
+  annotate("text", x = 4, y = 3.5, 
+    label = as.expression(bquote("Odds* =" ~ .(Day190)), size = 6)) +
+  annotate("text", x = 4, y = 3.3, 
+    label = as.expression(bquote("P =" ~ .(Day190pval)), size = 6)) +
+  
+  annotate("text", x = 5, y = 3.5, label = "ns", size = 5) +
+  annotate("text", x = 6, y = 3.5, label = "ns", size = 5) +
+  annotate("text", x = 7, y = 3.5, label = "ns", size = 5) +
+  annotate("text", x = 8, y = 3.5, label = "ns", size = 5) +
+  annotate("text", x = 9, y = 3.5, label = "ns", size = 5) +
+
+  # Define labels
+  labs(
+    x = "Day of year",
+    y = "Fold Change in Total Monoterpene") +
+  theme_minimal() +
+  ylim(0, 5) +
+  theme(
+    text = element_text(family = "Helvetica"),
+    axis.text.x = element_text(size = 20, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 20, hjust = 1),
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = c(0.9, 0.85),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    panel.grid.major = element_line(color = "gray70", linewidth = 1),  # Major grid lines
+    panel.grid.minor = element_line(color = "gray90", linewidth = 1),  # Major grid lines
+
+  )
+
+ggsave("Figure_7.pdf", plot = Figure_7, width = 40, height = 20, units = "cm")
+rm(list = setdiff(ls(), c("Baited_logistic_data", "Monoterpenes_Wide", "Control_trees", "Baited_trees","doc")))
+```
+
+# 3.3 Interaction between time and concentration
+
+```{r Interaction between speed and magnitude}
+Baited_interaction <- Baited_logistic_data[,-c(5, 8)]
+
+Baited_int_wide <- Baited_interaction %>% 
+  pivot_wider(
+    names_from = Day_of_year,
+    values_from = Fold_change
+  )
+  
+Baited_int_wide$Magnitude <- rowMeans(Baited_int_wide[,5:13], na.rm = TRUE)
+#Baited_int_wide$MaxFold_change <- do.call(pmax, c(Baited_int_wide[, 5:13], na.rm = TRUE))
+
+Baited_int_wide$Speed <- apply(as.data.frame(Baited_int_wide[,5:13]>1), 1, function(x) {
+  idx <- which(x)
+  if (length(idx) == 0) NA else names(as.data.frame(Baited_int_wide[,5:13]>1))[idx[1]]
+})
+Baited_int_wide$Survival[Baited_int_wide$Survival == "Survived"] <- "1"
+Baited_int_wide$Survival[Baited_int_wide$Survival == "Killed"] <- "0"
+Baited_int_wide$Survival <- as.numeric(Baited_int_wide$Survival)
+Baited_int_wide$Speed <- as.factor(Baited_int_wide$Speed)
+
+Effect_logistic <- glm(Survival ~ Speed*Magnitude, data = Baited_int_wide, family = binomial)
+
+# Table S9. Result of logistic regression test of speed and magnitude of monoterpene induction on survival
+coef_df <- tidy(Effect_logistic)
+fit_df <- glance(Effect_logistic)
+
+coef_df <- coef_df[, c("term", "estimate", "std.error", "statistic", "p.value")]
+names(coef_df) <- c("Term", "Estimate", "SE", "t", "p-value")
+coef_df$`p-value` <- format.pval(
+  coef_df$`p-value`,
+  digits = 3,
+  eps = 0.001
+)
+ft_coef <- flextable(coef_df)
+ft_coef <- autofit(ft_coef)
+
+
+fit_out <- data.frame(
+  Statistic = c(
+    "Null deviance",
+    "Null DF",
+    "Deviance",
+    "Residual DF",
+    "AIC"
+  ),
+  Value = c(
+    round(fit_df$null.deviance, 3),
+    round(fit_df$df.null, 3),
+    round(fit_df$deviance, 3),
+    round(fit_df$df.residual, 2),
+    format.pval(fit_df$AIC, eps = 0.001)
+  )
+)
+
+ft_fit <- autofit(flextable(fit_out))
+
+doc <- body_add_break(doc)
+doc <- body_add_par(
+  doc,
+  "Table S9. Result of logistic regression test of speed and magnitude of monoterpene induction on survival",
+  style = "Normal"
+)
+doc <- body_add_par(doc,"")
+doc <- body_add_par(doc, "Model: Survival ~ Speed × Magnitude", style = "Normal")
+doc <- body_add_par(doc, "Model coefficients", style = "centered")
+doc <- body_add_flextable(doc, ft_coef)
+doc <- body_add_par(doc, "Model fit statistics", style = "centered")
+doc <- body_add_flextable(doc, ft_fit)
+doc <- body_add_par(doc, "* NA in some rows is the result of having only one replicates in those factor levels", style = "Normal")
+print(doc, "Supplementary.docx")
+```
+
