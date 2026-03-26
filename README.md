@@ -24,10 +24,10 @@ This repository contains the dataset and R Markdown scripts used for the analysi
 
 - **Data license:** CC-BY 4.0  
 - **Code license:** MIT  
-- Archived and citable version (v1.0) available via Zenodo: [DOI link here]  
+- Archived and citable version (v1.0) available via Zenodo: 10.5281/zenodo.19225955
 
 ## Citation
 
 If you use this dataset or code, please cite:
 
-Khedive, E., Fathi Moghanloo, S., Davis, T.S. (2026). *Spruce monoterpenes dataset and R Markdown scripts.* Zenodo. DOI: [DOI link here]
+Khedive, E., Fathi Moghanloo, S., Davis, T.S. (2026). *Spruce monoterpenes dataset and R Markdown scripts.* Zenodo. DOI: 10.5281/zenodo.19225955
